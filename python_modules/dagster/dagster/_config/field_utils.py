@@ -496,9 +496,10 @@ class IntEnvVar(int):
     name: str
 
     @classmethod
-    def create(cls, name: str) -> "IntEnvVar":
+    def create(cls, name: str, default: Optional[int] = None) -> "IntEnvVar":
         var = IntEnvVar(0)
         var.name = name
+        var.default = default
         return var
 
     def __int__(self) -> int:
@@ -514,7 +515,7 @@ class IntEnvVar(int):
         """Returns the value of the environment variable, or the default value if the
         environment variable is not set. If no default is provided, None will be returned.
         """
-        value = os.getenv(self.name, default=default)
+        value = os.getenv(self.name, default=str(self.default) if default is None else str(default))
         return int(value) if value else None
 
     @property
@@ -533,9 +534,14 @@ class EnvVar(str):
     To access the value of the environment variable, use the `get_value` method.
     """
 
+    def __new__(cls, value: str, default: Optional[str] = None):
+        instance = super().__new__(cls, value)
+        instance.default = default
+        return instance
+
     @classmethod
-    def int(cls, name: str) -> "IntEnvVar":
-        return IntEnvVar.create(name=name)
+    def int(cls, name: str, default: Optional[int] = None) -> "IntEnvVar":
+        return IntEnvVar.create(name=name, default=default)
 
     def __str__(self) -> str:
         """Raises an exception of the EnvVar value is directly accessed. Users should instead use
@@ -552,4 +558,4 @@ class EnvVar(str):
         """Returns the value of the environment variable, or the default value if the
         environment variable is not set. If no default is provided, None will be returned.
         """
-        return os.getenv(self.env_var_name, default=default)
+        return os.getenv(self.env_var_name, default=self.default if default is None else default)

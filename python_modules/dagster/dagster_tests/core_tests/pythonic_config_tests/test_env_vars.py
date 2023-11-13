@@ -11,24 +11,28 @@ def test_direct_use_env_var_ok() -> None:
     with environ({"A_STR": "foo"}):
         assert EnvVar("A_STR").get_value() == "foo"
         assert EnvVar("A_STR").get_value(default="bar") == "foo"
+        assert EnvVar("A_STR",default="bar").get_value() == "foo"
 
     if "A_NON_EXISTENT_VAR" in os.environ:
         del os.environ["A_NON_EXISTENT_VAR"]
 
     assert EnvVar("A_NON_EXISTENT_VAR").get_value() is None
     assert EnvVar("A_NON_EXISTENT_VAR").get_value(default="bar") == "bar"
+    assert EnvVar("A_NON_EXISTENT_VAR",default="bar").get_value() == "bar"
 
 
 def test_direct_use_int_env_var_ok() -> None:
     with environ({"AN_INT": "55"}):
         assert EnvVar.int("AN_INT").get_value() == 55
         assert EnvVar.int("AN_INT").get_value(default=10) == 55
+        assert EnvVar.int("AN_INT",default=10).get_value() == 55
 
     if "A_NON_EXISTENT_VAR" in os.environ:
         del os.environ["A_NON_EXISTENT_VAR"]
 
     assert EnvVar.int("A_NON_EXISTENT_VAR").get_value() is None
     assert EnvVar.int("A_NON_EXISTENT_VAR").get_value(default=100) == 100
+    assert EnvVar.int("A_NON_EXISTENT_VAR",default=100).get_value() == 100
 
 
 def test_direct_use_env_var_err() -> None:
@@ -85,14 +89,26 @@ def test_str_env_var() -> None:
     def a_string_asset(config: AStringConfig):
         assert config.a_str == "foo"
         executed["a_string_asset"] = True
-
-    defs = Definitions(assets=[a_string_asset])
+    
+    @asset
+    def a_default_string_asset(config: AStringConfig):
+        assert config.a_str == "bar"
+        executed["a_default_string_asset"] = True
+        
+    defs = Definitions(assets=[a_string_asset, a_default_string_asset])
+    
+    if "A_NON_EXISTENT_VAR" in os.environ:
+        del os.environ["A_NON_EXISTENT_VAR"]
 
     with environ({"A_STR": "foo"}):
         defs.get_implicit_global_asset_job_def().execute_in_process(
-            run_config=RunConfig(ops={"a_string_asset": AStringConfig(a_str=EnvVar("A_STR"))})
+            run_config=RunConfig(ops={
+                "a_string_asset": AStringConfig(a_str=EnvVar("A_STR")),
+                "a_default_string_asset": AStringConfig(a_str=EnvVar("A_NON_EXISTENT_VAR",default="bar"))
+            })
         )
     assert executed["a_string_asset"]
+    assert executed["a_default_string_asset"]
 
 
 def test_str_env_var_nested() -> None:
@@ -130,14 +146,26 @@ def test_int_env_var() -> None:
     def an_int_asset(config: AnIntConfig):
         assert config.an_int == 5
         executed["an_int_asset"] = True
+        
+    @asset
+    def a_default_int_asset(config: AnIntConfig):
+        assert config.an_int == 10
+        executed["a_default_int_asset"] = True
 
-    defs = Definitions(assets=[an_int_asset])
+    defs = Definitions(assets=[an_int_asset,a_default_int_asset])
+    
+    if "A_NON_EXISTENT_VAR" in os.environ:
+        del os.environ["A_NON_EXISTENT_VAR"]
 
     with environ({"AN_INT": "5"}):
         defs.get_implicit_global_asset_job_def().execute_in_process(
-            run_config=RunConfig(ops={"an_int_asset": AnIntConfig(an_int=EnvVar.int("AN_INT"))})
+            run_config=RunConfig(ops={
+                "an_int_asset": AnIntConfig(an_int=EnvVar.int("AN_INT")),
+                "a_default_int_asset": AnIntConfig(an_int=EnvVar.int("A_NON_EXISTENT_VAR",default=10))
+            })
         )
     assert executed["an_int_asset"]
+    assert executed["a_default_int_asset"]
 
 
 def test_int_env_var_nested() -> None:
@@ -176,7 +204,16 @@ def test_int_env_var_non_int_value() -> None:
         assert config.an_int == 5
         executed["an_int_asset"] = True
 
+    @asset
+    def a_default_int_asset(config: AnIntConfig):
+        assert config.an_int == 10
+        executed["an_int_asset"] = True
+
     defs = Definitions(assets=[an_int_asset])
+    defs_default = Definitions(assets=[a_default_int_asset])
+    
+    if "A_NON_EXISTENT_VAR" in os.environ:
+        del os.environ["A_NON_EXISTENT_VAR"]
 
     with environ({"AN_INT": "NOT_AN_INT"}):
         with pytest.raises(
@@ -187,5 +224,14 @@ def test_int_env_var_non_int_value() -> None:
         ):
             defs.get_implicit_global_asset_job_def().execute_in_process(
                 run_config=RunConfig(ops={"an_int_asset": AnIntConfig(an_int=EnvVar.int("AN_INT"))})
+            )
+        with pytest.raises(
+            DagsterInvalidConfigError,
+            match=(
+                'Value "NOT_AN_INT" stored in env variable "A_NON_EXISTENT_VAR" cannot be coerced into an int.'
+            ),
+        ):
+            defs_default.get_implicit_global_asset_job_def().execute_in_process(
+                run_config=RunConfig(ops={"a_default_int_asset": AnIntConfig(an_int=EnvVar.int("A_NON_EXISTENT_VAR",default="NOT_AN_INT"))})
             )
     assert len(executed) == 0
